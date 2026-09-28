@@ -121,7 +121,7 @@ input[type=search]::-webkit-search-cancel-button,input[type=search]::-webkit-sea
   <div class="interp" id="interp"></div>
   <div class="count" id="count"></div>
   <ol class="results" id="results"></ol>
-  <p class="foot">Tarif principal : grille 5 (spécialité chirurgicale, secteur 2 OPTAM ; identique au secteur 1). « Hors OPTAM » : grille 4. J, K, T barrés : modificateur non autorisé sur l'acte. Tarifs majorés indicatifs, coefficients additionnés (J 1,065 ; K 1,30 au tarif opposable ; T 1,215 avec dépassement), sans règle d'association d'actes. Recherche possible par code CCAM, complet (FAFA015) ou partiel (FAFA, fafa01), y compris plusieurs codes à la fois. Cliquez sur un code pour le copier. Les actes non remboursés ou sans tarif ne sont pas inclus.</p>
+  <p class="foot">Tarif principal : grille 5 (spécialité chirurgicale, secteur 2 OPTAM ; identique au secteur 1). « Hors OPTAM » : grille 4. J, K, T barrés : modificateur non autorisé sur l'acte. Tarifs majorés indicatifs, coefficients additionnés (J 1,065 ; K 1,30 au tarif opposable ; T 1,215 avec dépassement), sans règle d'association d'actes. Recherche possible par code CCAM, complet (FAFA015) ou partiel (fafa, FAFA01), y compris plusieurs codes à la fois. Cliquez sur un code pour le copier. Les actes non remboursés ou sans tarif ne sont pas inclus.</p>
 </div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
@@ -329,8 +329,8 @@ function splitCodes(q){
   const codes=[], rest=[];
   for (const t of s.split(/[\s,;\/+]+/).filter(Boolean)){
     const m = t.match(/^([A-Za-z]{4})(\d{0,3})$/);
-    // avec chiffres : toujours un code ; 4 lettres seules : code seulement si tapé en majuscules et existant (ex. FAFA)
-    if (m && PREFIXES.has(m[1].toUpperCase()) && (m[2] || m[1]===m[1].toUpperCase())) codes.push(t.toUpperCase());
+    // 4 lettres d'un code existant, avec ou sans chiffres, majuscules ou minuscules (ex. fafa, FAFA01)
+    if (m && PREFIXES.has(m[1].toUpperCase())) codes.push(t.toUpperCase());
     else if (m && m[2] && m[2].length===3) codes.push(t.toUpperCase());
     else rest.push(t);
   }
