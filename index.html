@@ -68,6 +68,7 @@ ol.results{list-style:none;margin:0;padding:0;display:grid;gap:8px}
 .code:hover{border-color:var(--accent)}
 .code.ok{color:var(--cro)}
 .label{font-size:15px;line-height:1.4}
+.code mark{background:var(--mark);color:inherit;border-radius:2px;padding:0 1px}
 .label mark{background:var(--mark);color:inherit;border-radius:2px;padding:0 1px}
 .meta{grid-column:2;display:flex;flex-wrap:wrap;gap:6px 12px;font-size:12.5px;color:var(--muted);align-items:center}
 .pill{display:inline-flex;align-items:center;gap:4px;border-radius:999px;padding:1px 8px;font-size:12px;font-weight:500}
@@ -106,7 +107,7 @@ input[type=search]::-webkit-search-cancel-button,input[type=search]::-webkit-sea
     <div class="brand"><h1>Chercheur d'actes CCAM ORL</h1><span class="ver">CCAM V84 · tarifs au 22/09/2026 · secteur 2 OPTAM</span></div>
     <div class="searchbox">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
-      <input id="q" type="search" autocomplete="off" spellcheck="false" placeholder="Décrivez un geste : plaie de l'oreille, saignement du nez, ATT…" aria-label="Rechercher un acte">
+      <input id="q" type="search" autocomplete="off" spellcheck="false" placeholder="Un geste (plaie de l'oreille, ATT…) ou un code (FAFA015)" aria-label="Rechercher un acte">
       <button id="clear" type="button" aria-label="Effacer">×</button>
     </div>
     <div class="examples" id="examples"><span class="lbl">Exemples :</span></div>
@@ -120,7 +121,7 @@ input[type=search]::-webkit-search-cancel-button,input[type=search]::-webkit-sea
   <div class="interp" id="interp"></div>
   <div class="count" id="count"></div>
   <ol class="results" id="results"></ol>
-  <p class="foot">Tarif principal : grille 5 (spécialité chirurgicale, secteur 2 OPTAM ; identique au secteur 1). « Hors OPTAM » : grille 4. J, K, T barrés : modificateur non autorisé sur l'acte. Tarifs majorés indicatifs, coefficients additionnés (J 1,065 ; K 1,30 au tarif opposable ; T 1,215 avec dépassement), sans règle d'association d'actes. Cliquez sur un code pour le copier. Les actes non remboursés ou sans tarif ne sont pas inclus.</p>
+  <p class="foot">Tarif principal : grille 5 (spécialité chirurgicale, secteur 2 OPTAM ; identique au secteur 1). « Hors OPTAM » : grille 4. J, K, T barrés : modificateur non autorisé sur l'acte. Tarifs majorés indicatifs, coefficients additionnés (J 1,065 ; K 1,30 au tarif opposable ; T 1,215 avec dépassement), sans règle d'association d'actes. Recherche possible par code CCAM, complet (FAFA015) ou partiel (FAFA, fafa01), y compris plusieurs codes à la fois. Cliquez sur un code pour le copier. Les actes non remboursés ou sans tarif ne sont pas inclus.</p>
 </div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
@@ -320,12 +321,35 @@ function highlight(label, marks){
   }).join("");
 }
 
+/* ---------- Recherche par code CCAM ---------- */
+const PREFIXES = new Set(ACTS.map(a=>a.code.slice(0,4)));
+function splitCodes(q){
+  // « FAFA 015 » -> « FAFA015 »
+  const s = q.replace(/\b([A-Za-z]{4})\s+(\d{1,3})\b/g,"$1$2");
+  const codes=[], rest=[];
+  for (const t of s.split(/[\s,;\/+]+/).filter(Boolean)){
+    const m = t.match(/^([A-Za-z]{4})(\d{0,3})$/);
+    // avec chiffres : toujours un code ; 4 lettres seules : code seulement si tapé en majuscules et existant (ex. FAFA)
+    if (m && PREFIXES.has(m[1].toUpperCase()) && (m[2] || m[1]===m[1].toUpperCase())) codes.push(t.toUpperCase());
+    else if (m && m[2] && m[2].length===3) codes.push(t.toUpperCase());
+    else rest.push(t);
+  }
+  return {codes, rest:rest.join(" ")};
+}
+
 function render(){
   const q = $("q").value.trim();
   const reg = $("region").value, onlyJ=$("onlyJ").checked, onlyCro=$("onlyCro").checked;
-  const groups = q ? parse(q) : [];
+  const {codes, rest} = splitCodes(q);
+  const groups = rest ? parse(rest) : [];
+  const pass = a => (reg===""||a.reg===+reg)&&(!onlyJ||a.mods.includes("J"))&&(!onlyCro||a.cro.length);
+  const codeHits = [];
+  for (const c of codes) for (const a of ACTS) if (a.code.startsWith(c) && pass(a) && !codeHits.some(h=>h.a===a)) codeHits.push({a, marks:new Set(), cover:1, bycode:true});
   // interprétation
   const ip = $("interp"); ip.innerHTML = "";
+  if (codes.length){
+    ip.insertAdjacentHTML("beforeend",'<span>Code CCAM :</span>'+codes.map(c=>`<span class="concept"><b>${esc(c)}</b>${c.length<7?' <i>(début de code)</i>':''}</span>`).join(""));
+  }
   if (groups.length){
     ip.insertAdjacentHTML("beforeend",'<span>Compris :</span>');
     groups.forEach(g=>{
@@ -346,24 +370,30 @@ function render(){
     const top = list.length? list[0].cover : 0;
     // si des actes couvrent toute la requête, on masque ceux qui n'en couvrent qu'une petite partie
     if (top===1 && groups.length>1) list = list.filter(r=>r.cover>=0.5);
+  } else if (codes.length) {
+    list = [];
   } else {
-    list = ACTS.filter(a=>(reg===""||a.reg===+reg)&&(!onlyJ||a.mods.includes("J"))&&(!onlyCro||a.cro.length)).map(a=>({a,marks:new Set(),cover:1}));
+    list = ACTS.filter(pass).map(a=>({a,marks:new Set(),cover:1}));
     if (!reg && !onlyCro) list = list.filter(r=>r.a.cro.length);
   }
+  if (codes.length){ list = codeHits.concat(list.filter(r=>!codeHits.some(h=>h.a===r.a))); }
+  const searching = groups.length || codes.length;
   const shown = list.slice(0,80);
-  $("count").innerHTML = groups.length
-    ? (list.length ? `<strong>${list.length}</strong> acte${list.length>1?"s":""} en rapport${list.length>80?" · 80 premiers affichés, du plus pertinent au moins pertinent":""}` : "")
+  $("count").innerHTML = searching
+    ? (list.length ? `<strong>${list.length}</strong> acte${list.length>1?"s":""} ${groups.length?"en rapport":"trouvé"+(list.length>1?"s":"")}${list.length>80?" · 80 premiers affichés, du plus pertinent au moins pertinent":""}` : "")
     : `Aucune recherche : ${reg||onlyCro||onlyJ?"actes filtrés":"les actes de vos modèles de CRO"} (<strong>${list.length}</strong>)`;
   const ol = $("results"); ol.innerHTML="";
-  if (groups.length && !list.length){ ol.innerHTML = `<li class="empty">Aucun acte trouvé pour « ${esc(q)} ». Essayez un mot plus général (ex. « nez », « exérèse ») ou retirez un filtre.</li>`; return; }
+  if (searching && !list.length){ ol.innerHTML = codes.length && !groups.length
+      ? `<li class="empty">Aucun acte de la liste ne correspond au code « ${esc(codes.join(", "))} ». Le code n'existe pas, ou l'acte n'est pas dans cette liste ORL (actes remboursés uniquement), ou un filtre le masque.</li>`
+      : `<li class="empty">Aucun acte trouvé pour « ${esc(q)} ». Essayez un mot plus général (ex. « nez », « exérèse ») ou retirez un filtre.</li>`; return; }
   const frag = document.createDocumentFragment();
-  for (const {a,marks} of shown){
+  for (const {a,marks,bycode} of shown){
     const li=document.createElement("li"); li.className="act"+(a.cro.length?" incro":"");
     const J=a.mods.includes("J"),K=a.mods.includes("K"),T=a.mods.includes("T");
     const jk = a.g5*(1+(J?.065:0)+(K?.30:0)), jt = a.g5*(1+(J?.065:0)+(T?.215:0));
     const flags = []; if (a.fl.includes("AP")) flags.push("Accord préalable"); if (a.fl.includes("RSC")) flags.push("Remb. sous conditions"); if (a.fl.includes("PH")) flags.push("En plusieurs phases");
     li.innerHTML = `
-      <button class="code" type="button" data-code="${a.code}" title="Copier le code">${a.code}</button>
+      <button class="code" type="button" data-code="${a.code}" title="Copier le code">${bycode?`<mark>${a.code}</mark>`:a.code}</button>
       <div class="label">${highlight(a.label, marks)}</div>
       <div class="price"><div class="main">${fmt(a.g5)} €</div><div class="sub">hors OPTAM ${fmt(a.g4)} €</div>
         <div class="mods">${[["J",J],["K",K],["T",T]].map(([m,y])=>`<span class="mod ${y?"y":"n"}" title="${m} ${y?"autorisé":"non autorisé"}">${m}</span>`).join("")}</div>
@@ -379,7 +409,7 @@ function render(){
 
 /* ---------- Événements ---------- */
 REGS.forEach((r,i)=>$("region").insertAdjacentHTML("beforeend",`<option value="${i}">${esc(r)}</option>`));
-["plaie de l'oreille","saignement du nez","ATT","ganglion du cou","grain de beauté visage","oreilles décollées","calcul sous maxillaire","amigdale"].forEach(e=>{
+["plaie de l'oreille","FAFA015","saignement du nez","ATT","ganglion du cou","grain de beauté visage","oreilles décollées","calcul sous maxillaire","amigdale"].forEach(e=>{
   const b=document.createElement("button"); b.type="button"; b.className="ex"; b.textContent=e; b.onclick=()=>{$("q").value=e; render(); $("q").focus();}; $("examples").appendChild(b);
 });
 let tmr; $("q").addEventListener("input",()=>{clearTimeout(tmr); tmr=setTimeout(render,120);});
